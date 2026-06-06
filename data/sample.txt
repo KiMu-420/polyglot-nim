@@ -1,0 +1,1 @@
+Quantum computing uses qubits. They can be in superposition states. This enables parallel computation. It will revolutionize cryptography and drug discovery.
