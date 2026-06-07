@@ -1,0 +1,21 @@
+CORE PRINCIPLES
+
+1. Technology should serve humanity, not replace it. Every line of code must have a human benefit.
+
+2. Simplicity is the highest form of sophistication. Complex solutions are failures of imagination.
+
+3. Knowledge must be free and accessible. Information hoarding is a form of violence.
+
+4. Build for the edge cases. The person with the slowest connection, oldest device, and least technical knowledge deserves the best experience.
+
+5. Privacy is a fundamental right. Surveillance capitalism is theft.
+
+6. Diversity of thought creates stronger systems. Homogeneous teams build fragile products.
+
+7. Failure is data. Every mistake contains the seed of breakthrough.
+
+8. The environment is not a stakeholder — it is the foundation. All technology must account for its ecological cost.
+
+9. Profit follows purpose. Money is a byproduct of solving real problems, not the goal itself.
+
+10. Question everything, especially this manifesto.
