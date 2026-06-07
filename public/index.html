@@ -20,7 +20,7 @@
 </head>
 <body>
     <h1>📚 Polyglot NIM - Document Q&A</h1>
-    <p>Ask questions about your document. Powered by NVIDIA NIM.</p>
+    <p>Ask questions. Powered by NVIDIA NIM.</p>
     <div id="chat-box"></div>
     <div id="input-area">
         <input type="text" id="question" placeholder="Type your question..." onkeypress="if(event.key==='Enter') ask()">
@@ -28,10 +28,9 @@
     </div>
 
     <script>
-        const API_URL = window.location.port === "8081" 
-            ? "/api/ask" 
-            : "http://localhost:8080/api/ask";
-        const API_KEY = "secret123";
+        const API_URL = window.location.hostname === "localhost" 
+            ? "http://localhost:8080/api/ask" 
+            : "/api/ask";
 
         function ask() {
             const question = document.getElementById("question").value.trim();
@@ -44,14 +43,11 @@
 
             fetch(API_URL, {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "X-API-Key": API_KEY
-                },
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ question: question })
             })
             .then(response => {
-                if (!response.ok) throw new Error("API error: " + response.status);
+                if (!response.ok) throw new Error("Error: " + response.status);
                 return response.json();
             })
             .then(data => {
