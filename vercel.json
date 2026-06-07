@@ -1,4 +1,9 @@
 {
+  "functions": {
+    "api/ask.py": {
+      "runtime": "@vercel/python@3.0.0"
+    }
+  },
   "rewrites": [
     { "source": "/api/ask", "destination": "/api/ask" },
     { "source": "/(.*)", "destination": "/public/$1" }
