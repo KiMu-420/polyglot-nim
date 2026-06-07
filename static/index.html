@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Polyglot NIM - Document Q&A</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; background: #f5f5f5; }
+        h1 { color: #333; }
+        #chat-box { background: white; border-radius: 8px; padding: 20px; min-height: 300px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .question { color: #0066cc; font-weight: bold; margin: 10px 0 5px; }
+        .answer { color: #333; margin: 5px 0 15px; padding-left: 10px; border-left: 3px solid #0066cc; }
+        .error { color: red; }
+        #input-area { display: flex; margin-top: 20px; gap: 10px; }
+        #question { flex: 1; padding: 10px; font-size: 16px; border: 1px solid #ccc; border-radius: 4px; }
+        button { padding: 10px 20px; font-size: 16px; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #004499; }
+        .loading { color: #999; }
+    </style>
+</head>
+<body>
+    <h1>📚 Polyglot NIM - Document Q&A</h1>
+    <p>Ask questions about your document. Powered by NVIDIA NIM.</p>
+    <div id="chat-box"></div>
+    <div id="input-area">
+        <input type="text" id="question" placeholder="Type your question..." onkeypress="if(event.key==='Enter') ask()">
+        <button onclick="ask()">Ask</button>
+    </div>
+
+    <script>
+        const API_URL = window.location.port === "8081" 
+            ? "/api/ask" 
+            : "http://localhost:8080/api/ask";
+        const API_KEY = "secret123";
+
+        function ask() {
+            const question = document.getElementById("question").value.trim();
+            if (!question) return;
+
+            const chatBox = document.getElementById("chat-box");
+            chatBox.innerHTML += `<div class="question">❓ ${question}</div>`;
+            chatBox.innerHTML += `<div class="loading">Thinking...</div>`;
+            document.getElementById("question").value = "";
+
+            fetch(API_URL, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-API-Key": API_KEY
+                },
+                body: JSON.stringify({ question: question })
+            })
+            .then(response => {
+                if (!response.ok) throw new Error("API error: " + response.status);
+                return response.json();
+            })
+            .then(data => {
+                chatBox.innerHTML = chatBox.innerHTML.replace('<div class="loading">Thinking...</div>', "");
+                chatBox.innerHTML += `<div class="answer">🤖 ${data.answer}</div>`;
+                chatBox.scrollTop = chatBox.scrollHeight;
+            })
+            .catch(error => {
+                chatBox.innerHTML = chatBox.innerHTML.replace('<div class="loading">Thinking...</div>', "");
+                chatBox.innerHTML += `<div class="error">❌ ${error.message}</div>`;
+            });
+        }
+    </script>
+</body>
+</html>

@@ -3,12 +3,16 @@ import json
 import numpy as np
 from flask import Flask, request, jsonify
 from openai import OpenAI
+from dotenv import load_dotenv
+
+# Load API key from .env file
+load_dotenv()
 
 app = Flask(__name__)
 
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY")
 if not NVIDIA_API_KEY:
-    raise ValueError("NVIDIA_API_KEY not set")
+    raise ValueError("NVIDIA_API_KEY not set in .env file")
 
 EMBED_MODEL = "nvidia/nv-embedqa-e5-v5"
 CHAT_MODEL  = "meta/llama-3.1-8b-instruct"

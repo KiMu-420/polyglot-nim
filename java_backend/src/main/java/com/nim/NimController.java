@@ -5,6 +5,7 @@ import org.springframework.http.*;
 import org.springframework.web.client.RestTemplate;
 
 @RestController
+@CrossOrigin(origins = "*")
 public class NimController {
 
     private final RestTemplate restTemplate = new RestTemplate();
