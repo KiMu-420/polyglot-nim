@@ -5,7 +5,6 @@ import requests
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY")
 
 def handler(request):
-    # Handle CORS preflight
     if request.get("method") == "OPTIONS":
         return {
             "statusCode": 200,
@@ -16,7 +15,6 @@ def handler(request):
             }
         }
     
-    # Parse the incoming request
     body = json.loads(request.get("body", "{}"))
     question = body.get("question", "")
     
@@ -26,7 +24,6 @@ def handler(request):
             "body": json.dumps({"error": "Missing question"})
         }
     
-    # Call NVIDIA NIM
     headers = {
         "Authorization": f"Bearer {NVIDIA_API_KEY}",
         "Content-Type": "application/json"
