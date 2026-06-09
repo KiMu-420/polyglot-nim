@@ -3,12 +3,15 @@ import json
 import hashlib
 import numpy as np
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import redis
 from openai import OpenAI
 from dotenv import load_dotenv
+
+# --- NeMo Guardrails ---
+from nemoguardrails import RailsConfig, LLMRails
 
 load_dotenv()
 
@@ -19,17 +22,16 @@ if not NVIDIA_API_KEY:
 EMBED_MODEL = "nvidia/nv-embedqa-e5-v5"
 CHAT_MODEL = "meta/llama-3.1-8b-instruct"
 MANIFESTO_FILE = "manifesto.txt"
-
-# Redis configuration (optional – set REDIS_URL in Railway if you add Redis)
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 
-# Globals (these will be initialised at startup)
+# --- Globals ---
 MANIFESTO_CHUNKS = []
 MANIFESTO_EMBEDDINGS = None
 MANIFESTO_HASH = None
 redis_client = None
+guardrails = None   # will be initialised at startup
 
-# ---------- Embedding helpers ----------
+# --- NIM client ---
 client = OpenAI(
     base_url="https://integrate.api.nvidia.com/v1",
     api_key=NVIDIA_API_KEY
@@ -47,7 +49,7 @@ def get_embedding(text: str, input_type: str = "passage") -> np.ndarray:
 def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
 
-# ---------- Manifesto loading + Redis caching ----------
+# --- Manifesto loading + Redis ---
 def chunk_text(text: str, chunk_size: int = 300) -> list:
     words = text.split()
     chunks = []
@@ -69,7 +71,6 @@ def load_manifesto():
         MANIFESTO_EMBEDDINGS = None
         return
 
-    # Hash to detect changes
     new_hash = hashlib.md5(text.encode()).hexdigest()
     if new_hash == MANIFESTO_HASH and MANIFESTO_EMBEDDINGS is not None:
         print("Manifesto unchanged, using cached embeddings.")
@@ -79,41 +80,49 @@ def load_manifesto():
     MANIFESTO_CHUNKS = chunk_text(text)
     print(f"Manifesto split into {len(MANIFESTO_CHUNKS)} chunks.")
 
-    # Try Redis cache first
     if redis_client:
         cached = redis_client.get(f"manifesto:{MANIFESTO_HASH}")
         if cached:
-            MANIFESTO_EMBEDDINGS = np.frombuffer(cached).reshape(-1, 1024)  # adjust dim if needed
+            MANIFESTO_EMBEDDINGS = np.frombuffer(cached).reshape(-1, 1024)
             print("Loaded embeddings from Redis.")
             return
 
-    print("Computing manifesto embeddings (this may take ~30s)...")
+    print("Computing manifesto embeddings...")
     MANIFESTO_EMBEDDINGS = np.array([get_embedding(ch, "passage") for ch in MANIFESTO_CHUNKS])
     print("Embeddings computed.")
 
-    # Store in Redis if available
     if redis_client:
         redis_client.set(f"manifesto:{MANIFESTO_HASH}", MANIFESTO_EMBEDDINGS.tobytes())
         print("Stored embeddings in Redis.")
 
-# ---------- Startup event ----------
+# --- Startup/shutdown ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
-    global redis_client
+    global redis_client, guardrails
+
+    # Redis
     try:
         redis_client = redis.Redis.from_url(REDIS_URL, socket_connect_timeout=2)
         redis_client.ping()
         print("Connected to Redis.")
     except:
-        print("Redis not available – embeddings will be recomputed on restart.")
+        print("Redis not available.")
         redis_client = None
+
+    # NeMo Guardrails
+    try:
+        guardrails_config = RailsConfig.from_path("./config")
+        guardrails = LLMRails(guardrails_config)
+        print("Guardrails loaded.")
+    except Exception as e:
+        print(f"Guardrails not loaded: {e}")
+        guardrails = None
 
     load_manifesto()
     yield
-    # Shutdown (nothing needed)
+    # shutdown: nothing needed
 
-# ---------- FastAPI app ----------
+# --- FastAPI app ---
 app = FastAPI(title="Manifesto AI", lifespan=lifespan)
 
 app.add_middleware(
@@ -137,7 +146,20 @@ async def ask(req: AskRequest):
     if not question:
         raise HTTPException(status_code=400, detail="Missing question")
 
-    # Search manifesto
+    # --- Safety check ---
+    if guardrails:
+        try:
+            safety_result = await guardrails.generate_async(prompt=question)
+            if "refuse" in safety_result.lower() or "off-topic" in safety_result.lower():
+                return AskResponse(
+                    answer="I can only answer questions related to the manifesto.",
+                    mode="safety_blocked",
+                    similarity=None
+                )
+        except:
+            pass  # fall through if guardrails error
+
+    # --- Manifesto search ---
     context = None
     score = None
     if MANIFESTO_CHUNKS and MANIFESTO_EMBEDDINGS is not None:
@@ -147,7 +169,7 @@ async def ask(req: AskRequest):
         context = MANIFESTO_CHUNKS[best_idx]
         score = float(sims[best_idx])
 
-    # Build prompt
+    # --- Build prompt & call NIM ---
     if context:
         prompt = f"""You are an AI that answers questions based STRICTLY on the following manifesto.
 Do not bring in outside knowledge. If the answer isn't in the manifesto, say so.
@@ -160,7 +182,6 @@ ANSWER:"""
     else:
         prompt = f"Question: {question}\nAnswer:"
 
-    # Call NIM
     completion = client.chat.completions.create(
         model=CHAT_MODEL,
         messages=[{"role": "user", "content": prompt}],
@@ -175,7 +196,6 @@ ANSWER:"""
         similarity=score
     )
 
-# Health check
 @app.get("/health")
 async def health():
     return {"status": "ok"}

@@ -1,0 +1,14 @@
+define user ask about manifesto
+  "I want to understand the principles"
+  "What does the manifesto say?"
+  "Tell me about the cosmic storybook"
+  "Explain the weight of matter"
+  "What is the fabric of reality?"
+
+define flow
+  user ask question
+  bot respond from manifesto
+
+define bot refuse off-topic
+  "I can only answer questions about the manifesto."
+  "Please ask something related to the manifesto."
