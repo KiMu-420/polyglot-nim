@@ -3,16 +3,16 @@ import json
 import hashlib
 import numpy as np
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Request, Header, Depends
+from fastapi import FastAPI, HTTPException, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
 import redis
 import jwt
 import requests
 from openai import OpenAI
 from dotenv import load_dotenv
 from nemoguardrails import RailsConfig, LLMRails
+from sqlalchemy.orm import Session
 from models import SessionLocal, User, Manifesto
 
 load_dotenv()
@@ -32,19 +32,30 @@ redis_client = None
 guardrails = None
 client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=NVIDIA_API_KEY)
 
-# ---------- Auth ----------
+# ---------- Auth helper ----------
 def verify_clerk_token(authorization: str = None) -> str | None:
+    """If Clerk is configured, verify the JWT. Returns user ID or None."""
     if not CLERK_SECRET_KEY or not authorization:
-        return None
+        return None  # auth not required yet
     token = authorization.replace("Bearer ", "")
     try:
+        # Fetch Clerk's public keys
         jwks = requests.get(CLERK_JWKS_URL).json()
-        public_keys = {key["kid"]: jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(key)) for key in jwks["keys"]}
+        public_keys = {}
+        for key in jwks["keys"]:
+            public_keys[key["kid"]] = jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(key))
+
+        # Decode and verify
         kid = jwt.get_unverified_header(token)["kid"]
-        payload = jwt.decode(token, key=public_keys[kid], algorithms=["RS256"], options={"verify_exp": True})
-        return payload.get("sub")
-    except:
-        return None
+        payload = jwt.decode(
+            token,
+            key=public_keys[kid],
+            algorithms=["RS256"],
+            options={"verify_exp": True}
+        )
+        return payload.get("sub")  # Clerk user ID
+    except Exception:
+        return None  # invalid token
 
 # ---------- Helper functions ----------
 def get_embedding(text: str, input_type: str = "passage") -> np.ndarray:
@@ -115,6 +126,21 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Manifesto AI", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+# ---------- Debug endpoint (temporary) ----------
+@app.get("/debug-auth")
+async def debug_auth(authorization: str = Header(None)):
+    if not authorization:
+        return {"error": "No Authorization header"}
+    token = authorization.replace("Bearer ", "")
+    try:
+        jwks = requests.get(CLERK_JWKS_URL).json()
+        public_keys = {key["kid"]: jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(key)) for key in jwks["keys"]}
+        kid = jwt.get_unverified_header(token)["kid"]
+        payload = jwt.decode(token, key=public_keys[kid], algorithms=["RS256"], options={"verify_exp": True})
+        return {"status": "valid", "user_id": payload.get("sub")}
+    except Exception as e:
+        return {"error": str(e)}
 
 # Dependency to get DB session
 def get_db():
