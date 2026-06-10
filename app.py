@@ -39,8 +39,11 @@ def verify_clerk_token(authorization: str = None) -> str | None:
         return None  # auth not required yet
     token = authorization.replace("Bearer ", "")
     try:
-        # Fetch Clerk's public keys
-        jwks = requests.get(CLERK_JWKS_URL).json()
+        # Fetch Clerk's public keys (with auth)
+        jwks = requests.get(
+            CLERK_JWKS_URL,
+            headers={"Authorization": f"Bearer {CLERK_SECRET_KEY}"}
+        ).json()
         public_keys = {}
         for key in jwks["keys"]:
             public_keys[key["kid"]] = jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(key))
@@ -134,7 +137,10 @@ async def debug_auth(authorization: str = Header(None)):
         return {"error": "No Authorization header"}
     token = authorization.replace("Bearer ", "")
     try:
-        jwks = requests.get(CLERK_JWKS_URL).json()
+        jwks = requests.get(
+            CLERK_JWKS_URL,
+            headers={"Authorization": f"Bearer {CLERK_SECRET_KEY}"}
+        ).json()
         public_keys = {key["kid"]: jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(key)) for key in jwks["keys"]}
         kid = jwt.get_unverified_header(token)["kid"]
         payload = jwt.decode(token, key=public_keys[kid], algorithms=["RS256"], options={"verify_exp": True})
