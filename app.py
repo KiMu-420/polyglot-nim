@@ -142,15 +142,21 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Manifesto AI", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# ---------- Debug endpoint ----------
+# ---------- Debug endpoint with detailed error ----------
 @app.get("/debug-auth")
 async def debug_auth(authorization: str = Header(None)):
     if not authorization:
         return {"error": "No Authorization header"}
-    user_id = verify_clerk_token(authorization)
-    if user_id:
-        return {"status": "valid", "user_id": user_id}
-    return {"error": "Invalid token"}
+    token = authorization.replace("Bearer ", "")
+    try:
+        kid = jwt.get_unverified_header(token)["kid"]
+        key = clerk_public_keys.get(kid)
+        if not key:
+            return {"error": f"Key not found for kid: {kid}. Keys loaded: {list(clerk_public_keys.keys())}"}
+        payload = jwt.decode(token, key=key, algorithms=["RS256"], options={"verify_exp": True})
+        return {"status": "valid", "user_id": payload.get("sub")}
+    except Exception as e:
+        return {"error": str(e)}
 
 def get_db():
     db = SessionLocal()
