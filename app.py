@@ -8,7 +8,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import redis
 import jwt
-from jwt.algorithms import RSAAlgorithm
 import requests
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -43,8 +42,9 @@ def load_clerk_keys():
             headers={"Authorization": f"Bearer {CLERK_SECRET_KEY}"}
         )
         jwks = resp.json()
-        for key in jwks["keys"]:
-            clerk_public_keys[key["kid"]] = RSAAlgorithm.from_jwk(json.dumps(key))
+        for key_dict in jwks["keys"]:
+            jwk = jwt.PyJWK(key_dict, algorithm="RS256")
+            clerk_public_keys[key_dict["kid"]] = jwk.key
         print(f"Loaded {len(clerk_public_keys)} Clerk public keys.")
     except Exception as e:
         print(f"Failed to load Clerk keys: {e}")
@@ -58,7 +58,7 @@ def verify_clerk_token(authorization: str = None) -> str | None:
         kid = jwt.get_unverified_header(token)["kid"]
         key = clerk_public_keys.get(kid)
         if not key:
-            load_clerk_keys()  # refresh keys and retry
+            load_clerk_keys()
             key = clerk_public_keys.get(kid)
         if not key:
             return None
