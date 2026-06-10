@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import redis
 import jwt
+from jwt.algorithms import RSAAlgorithm
 import requests
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -23,7 +24,7 @@ DATABASE_URL = os.getenv("DATABASE_URL", "").replace("postgres://", "postgresql:
 
 EMBED_MODEL = "nvidia/nv-embedqa-e5-v5"
 CHAT_MODEL = "meta/llama-3.1-8b-instruct"
-MANIFESTO_FILE = "manifesto.txt"  # fallback global manifesto
+MANIFESTO_FILE = "manifesto.txt"
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 CLERK_JWKS_URL = "https://api.clerk.com/v1/jwks"
 
@@ -34,21 +35,18 @@ client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=NVIDIA_A
 
 # ---------- Auth helper ----------
 def verify_clerk_token(authorization: str = None) -> str | None:
-    """If Clerk is configured, verify the JWT. Returns user ID or None."""
     if not CLERK_SECRET_KEY or not authorization:
-        return None  # auth not required yet
+        return None
     token = authorization.replace("Bearer ", "")
     try:
-        # Fetch Clerk's public keys (with auth)
         jwks = requests.get(
             CLERK_JWKS_URL,
             headers={"Authorization": f"Bearer {CLERK_SECRET_KEY}"}
         ).json()
         public_keys = {}
         for key in jwks["keys"]:
-            public_keys[key["kid"]] = jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(key))
+            public_keys[key["kid"]] = RSAAlgorithm.from_jwk(json.dumps(key))
 
-        # Decode and verify
         kid = jwt.get_unverified_header(token)["kid"]
         payload = jwt.decode(
             token,
@@ -56,9 +54,9 @@ def verify_clerk_token(authorization: str = None) -> str | None:
             algorithms=["RS256"],
             options={"verify_exp": True}
         )
-        return payload.get("sub")  # Clerk user ID
+        return payload.get("sub")
     except Exception:
-        return None  # invalid token
+        return None
 
 # ---------- Helper functions ----------
 def get_embedding(text: str, input_type: str = "passage") -> np.ndarray:
@@ -75,7 +73,6 @@ def chunk_text(text: str, chunk_size: int = 300):
     return [" ".join(words[i:i+chunk_size]).strip() for i in range(0, len(words), chunk_size) if " ".join(words[i:i+chunk_size]).strip()]
 
 def load_manifesto_from_db(user_id: str) -> tuple:
-    """Load the user's manifesto from database, return (chunks, embeddings) or (None, None)."""
     if not DATABASE_URL:
         return None, None
     db: Session = SessionLocal()
@@ -83,7 +80,7 @@ def load_manifesto_from_db(user_id: str) -> tuple:
         user = db.query(User).filter(User.clerk_id == user_id).first()
         if not user or not user.manifestos:
             return None, None
-        manifesto = user.manifestos[0]  # use the first manifesto
+        manifesto = user.manifestos[0]
         chunks = chunk_text(manifesto.content)
         if not chunks:
             return None, None
@@ -93,7 +90,6 @@ def load_manifesto_from_db(user_id: str) -> tuple:
         db.close()
 
 def load_global_manifesto() -> tuple:
-    """Fallback global manifesto from file."""
     try:
         with open(MANIFESTO_FILE, "r", encoding="utf-8") as f:
             text = f.read()
@@ -141,14 +137,13 @@ async def debug_auth(authorization: str = Header(None)):
             CLERK_JWKS_URL,
             headers={"Authorization": f"Bearer {CLERK_SECRET_KEY}"}
         ).json()
-        public_keys = {key["kid"]: jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(key)) for key in jwks["keys"]}
+        public_keys = {key["kid"]: RSAAlgorithm.from_jwk(json.dumps(key)) for key in jwks["keys"]}
         kid = jwt.get_unverified_header(token)["kid"]
         payload = jwt.decode(token, key=public_keys[kid], algorithms=["RS256"], options={"verify_exp": True})
         return {"status": "valid", "user_id": payload.get("sub")}
     except Exception as e:
         return {"error": str(e)}
 
-# Dependency to get DB session
 def get_db():
     db = SessionLocal()
     try:
@@ -185,7 +180,6 @@ async def ask(req: AskRequest, authorization: str = Header(None)):
         except:
             pass
 
-    # Load manifesto (user-specific first, then global fallback)
     chunks, embeddings = None, None
     if user_id and DATABASE_URL:
         chunks, embeddings = load_manifesto_from_db(user_id)
@@ -226,7 +220,6 @@ async def upload_manifesto(req: UploadRequest, authorization: str = Header(None)
 
     db = next(get_db())
     try:
-        # Upsert user
         user = db.query(User).filter(User.clerk_id == user_id).first()
         if not user:
             user = User(clerk_id=user_id)
@@ -234,7 +227,6 @@ async def upload_manifesto(req: UploadRequest, authorization: str = Header(None)
             db.commit()
             db.refresh(user)
 
-        # Create/replace manifesto
         manifesto = db.query(Manifesto).filter(Manifesto.owner_id == user_id).first()
         if manifesto:
             manifesto.content = req.content
