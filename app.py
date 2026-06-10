@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import redis
 import jwt
-from jwt.algorithms import RSAAlgorithm
+from jwt import PyJWKClient
 import requests
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -32,6 +32,7 @@ CLERK_JWKS_URL = "https://api.clerk.com/v1/jwks"
 redis_client = None
 guardrails = None
 client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=NVIDIA_API_KEY)
+jwks_client = PyJWKClient(CLERK_JWKS_URL, headers={"Authorization": f"Bearer {CLERK_SECRET_KEY}"})
 
 # ---------- Auth helper ----------
 def verify_clerk_token(authorization: str = None) -> str | None:
@@ -39,18 +40,10 @@ def verify_clerk_token(authorization: str = None) -> str | None:
         return None
     token = authorization.replace("Bearer ", "")
     try:
-        jwks = requests.get(
-            CLERK_JWKS_URL,
-            headers={"Authorization": f"Bearer {CLERK_SECRET_KEY}"}
-        ).json()
-        public_keys = {}
-        for key in jwks["keys"]:
-            public_keys[key["kid"]] = RSAAlgorithm.from_jwk(json.dumps(key))
-
-        kid = jwt.get_unverified_header(token)["kid"]
+        signing_key = jwks_client.get_signing_key_from_jwt(token)
         payload = jwt.decode(
             token,
-            key=public_keys[kid],
+            key=signing_key.key,
             algorithms=["RS256"],
             options={"verify_exp": True}
         )
@@ -126,20 +119,15 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Manifesto AI", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# ---------- Debug endpoint (temporary) ----------
+# ---------- Debug endpoint ----------
 @app.get("/debug-auth")
 async def debug_auth(authorization: str = Header(None)):
     if not authorization:
         return {"error": "No Authorization header"}
     token = authorization.replace("Bearer ", "")
     try:
-        jwks = requests.get(
-            CLERK_JWKS_URL,
-            headers={"Authorization": f"Bearer {CLERK_SECRET_KEY}"}
-        ).json()
-        public_keys = {key["kid"]: RSAAlgorithm.from_jwk(json.dumps(key)) for key in jwks["keys"]}
-        kid = jwt.get_unverified_header(token)["kid"]
-        payload = jwt.decode(token, key=public_keys[kid], algorithms=["RS256"], options={"verify_exp": True})
+        signing_key = jwks_client.get_signing_key_from_jwt(token)
+        payload = jwt.decode(token, key=signing_key.key, algorithms=["RS256"], options={"verify_exp": True})
         return {"status": "valid", "user_id": payload.get("sub")}
     except Exception as e:
         return {"error": str(e)}
